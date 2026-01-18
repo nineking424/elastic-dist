@@ -240,6 +240,8 @@ kubectl rollout restart statefulset/elasticsearch -n elastic-system
 
 ### 데이터 백업
 
+Elasticsearch 스냅샷 및 Kubernetes PVC 백업에 대한 자세한 내용은 [백업/복구 가이드](../docs/backup-recovery-guide.md)를 참조하세요.
+
 ```bash
 # 스냅샷 리포지토리 등록 (S3 예시)
 kubectl exec -it elasticsearch-0 -n elastic-system -- curl -X PUT "localhost:9200/_snapshot/backup_repo" -H 'Content-Type: application/json' -d'
@@ -298,3 +300,14 @@ EOF
 ```
 
 자세한 내용은 [ECK 공식 문서](https://www.elastic.co/guide/en/cloud-on-k8s/current/index.html)를 참조하세요.
+
+---
+
+## 추가 문서
+
+프로덕션 환경 배포 및 운영에 대한 자세한 내용은 다음 문서를 참조하세요:
+
+| 문서 | 설명 |
+|------|------|
+| [프로덕션 체크리스트](../docs/production-checklist.md) | 프로덕션 배포 전 확인해야 할 모든 항목 |
+| [백업/복구 가이드](../docs/backup-recovery-guide.md) | 데이터 백업 및 복구 절차 |

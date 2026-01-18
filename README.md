@@ -29,6 +29,9 @@ elastic-dist/
 │   ├── otel-collector-daemonset.yaml
 │   ├── elk-ingress.yaml
 │   └── instruction.md
+├── docs/                          # 추가 문서
+│   ├── production-checklist.md    # 프로덕션 체크리스트
+│   └── backup-recovery-guide.md   # 백업/복구 가이드
 ├── REVIEW.md                      # 프로젝트 검토 보고서
 └── README.md
 ```
@@ -194,8 +197,17 @@ kubectl get pods -n elastic-system
 - **비밀번호**: 강력한 비밀번호 설정 및 Secret 관리
 - **네트워크**: NetworkPolicy 적용 (Kubernetes)
 - **리소스**: 적절한 CPU/메모리 제한 설정
+- **백업**: 정기적인 스냅샷 및 복구 테스트
 
-자세한 내용은 [REVIEW.md](REVIEW.md)를 참조하세요.
+자세한 체크리스트는 [프로덕션 체크리스트](docs/production-checklist.md)를 참조하세요.
+
+## 추가 문서
+
+| 문서 | 설명 |
+|------|------|
+| [프로덕션 체크리스트](docs/production-checklist.md) | 프로덕션 배포 전 확인 사항 |
+| [백업/복구 가이드](docs/backup-recovery-guide.md) | 데이터 백업 및 복구 절차 |
+| [REVIEW.md](REVIEW.md) | 프로젝트 검토 보고서 |
 
 ## 참고 문서
 

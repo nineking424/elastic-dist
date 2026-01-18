@@ -139,8 +139,8 @@
 
 ### 장기 개선 (P3)
 9. ~~실제 배포 파일 분리 또는 Helm Chart 제공~~ ✅ 해결됨
-10. 프로덕션 체크리스트 문서화
-11. 백업/복구 가이드 추가
+10. ~~프로덕션 체크리스트 문서화~~ ✅ 해결됨 → [docs/production-checklist.md](docs/production-checklist.md)
+11. ~~백업/복구 가이드 추가~~ ✅ 해결됨 → [docs/backup-recovery-guide.md](docs/backup-recovery-guide.md)
 
 ---
 
@@ -153,5 +153,7 @@
 - ✅ 모든 Docker 서비스에 재시작 정책 적용
 - ✅ 실제 배포 파일 분리 완료
 - ✅ Elasticsearch, Logstash Pod Anti-Affinity 적용
+- ✅ 프로덕션 체크리스트 문서화 완료
+- ✅ 백업/복구 가이드 문서화 완료
 - OpenTelemetry Collector RBAC 기본 구성
 - PVC/StorageClass 설정 (K8s)

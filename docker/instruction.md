@@ -102,13 +102,9 @@ docker volume ls | grep elk
 
 # 볼륨 상세 정보
 docker volume inspect docker_elasticsearch_data
-
-# 볼륨 백업
-docker run --rm -v docker_elasticsearch_data:/data -v $(pwd):/backup alpine tar czf /backup/es-backup.tar.gz -C /data .
-
-# 볼륨 복원
-docker run --rm -v docker_elasticsearch_data:/data -v $(pwd):/backup alpine tar xzf /backup/es-backup.tar.gz -C /data
 ```
+
+볼륨 백업 및 복원에 대한 자세한 내용은 [백업/복구 가이드](../docs/backup-recovery-guide.md#docker-볼륨-백업)를 참조하세요.
 
 ### 네트워크 확인
 
@@ -268,3 +264,14 @@ kibana:
 ```
 
 자세한 보안 설정은 [Elastic 공식 문서](https://www.elastic.co/guide/en/elasticsearch/reference/current/security-minimal-setup.html)를 참조하세요.
+
+---
+
+## 추가 문서
+
+프로덕션 환경 배포 및 운영에 대한 자세한 내용은 다음 문서를 참조하세요:
+
+| 문서 | 설명 |
+|------|------|
+| [프로덕션 체크리스트](../docs/production-checklist.md) | 프로덕션 배포 전 확인해야 할 모든 항목 |
+| [백업/복구 가이드](../docs/backup-recovery-guide.md) | 데이터 백업 및 복구 절차 |
