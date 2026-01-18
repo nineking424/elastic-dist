@@ -81,8 +81,10 @@ data:
     pipeline.workers: 2
   logstash.conf: |
     input {
-      beats {
+      # OpenTelemetry Collector에서 데이터 수신
+      http {
         port => 5044
+        codec => json
       }
     }
     filter {
@@ -433,67 +435,191 @@ spec:
             name: kibana-config
 ```
 
-## Filebeat DaemonSet 배포
+## OpenTelemetry Collector DaemonSet 배포
 
-`filebeat-daemonset.yaml`:
+`otel-collector-daemonset.yaml`:
 
 ```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: filebeat-config
+  name: otel-collector-config
   namespace: elastic-system
 data:
-  filebeat.yml: |
-    filebeat.inputs:
-    - type: container
-      paths:
-        - /var/log/containers/*.log
-      processors:
-        - add_kubernetes_metadata:
-            host: ${NODE_NAME}
-            matchers:
-            - logs_path:
-                logs_path: "/var/log/containers/"
-    output.elasticsearch:
-      hosts: ["http://elasticsearch:9200"]
-    setup.kibana:
-      host: "http://kibana:5601"
+  otel-collector-config.yaml: |
+    receivers:
+      # Kubernetes 컨테이너 로그 수집
+      filelog:
+        include:
+          - /var/log/pods/*/*/*.log
+        start_at: end
+        include_file_path: true
+        include_file_name: false
+        operators:
+          - type: router
+            id: get-format
+            routes:
+              - output: parser-docker
+                expr: 'body matches "^\\{"'
+              - output: parser-crio
+                expr: 'body matches "^[^ Z]+ "'
+              - output: parser-containerd
+                expr: 'body matches "^[^ Z]+Z"'
+          - type: regex_parser
+            id: parser-crio
+            regex: '^(?P<time>[^ Z]+) (?P<stream>stdout|stderr) (?P<logtag>[^ ]*) ?(?P<log>.*)$'
+            timestamp:
+              parse_from: attributes.time
+              layout_type: gotime
+              layout: '2006-01-02T15:04:05.999999999Z07:00'
+          - type: regex_parser
+            id: parser-containerd
+            regex: '^(?P<time>[^ ^Z]+Z) (?P<stream>stdout|stderr) (?P<logtag>[^ ]*) ?(?P<log>.*)$'
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+          - type: json_parser
+            id: parser-docker
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+          - type: move
+            from: attributes.log
+            to: body
+          - type: move
+            from: attributes.stream
+            to: attributes["log.iostream"]
+
+      # OTLP 프로토콜 수신
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      # Kubernetes 클러스터 메트릭
+      k8s_cluster:
+        collection_interval: 30s
+
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1024
+
+      k8sattributes:
+        auth_type: "serviceAccount"
+        passthrough: false
+        extract:
+          metadata:
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.namespace.name
+            - k8s.node.name
+            - k8s.container.name
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: kubernetes
+            action: upsert
+
+    exporters:
+      elasticsearch:
+        endpoints:
+          - http://elasticsearch:9200
+        logs_index: otel-logs
+        traces_index: otel-traces
+        metrics_index: otel-metrics
+
+      debug:
+        verbosity: basic
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        logs:
+          receivers: [filelog, otlp]
+          processors: [batch, k8sattributes, resource]
+          exporters: [elasticsearch]
+        traces:
+          receivers: [otlp]
+          processors: [batch, k8sattributes, resource]
+          exporters: [elasticsearch]
+        metrics:
+          receivers: [otlp, k8s_cluster]
+          processors: [batch, resource]
+          exporters: [elasticsearch]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: elastic-system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4317
+      name: otlp-grpc
+    - port: 4318
+      name: otlp-http
+    - port: 13133
+      name: health
+  selector:
+    app: otel-collector
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: filebeat
+  name: otel-collector
   namespace: elastic-system
 spec:
   selector:
     matchLabels:
-      app: filebeat
+      app: otel-collector
   template:
     metadata:
       labels:
-        app: filebeat
+        app: otel-collector
     spec:
-      serviceAccountName: filebeat
+      serviceAccountName: otel-collector
       terminationGracePeriodSeconds: 30
       containers:
-        - name: filebeat
-          image: docker.elastic.co/beats/filebeat:8.12.0
-          args: ["-c", "/etc/filebeat.yml", "-e"]
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.96.0
+          args: ["--config=/etc/otel-collector-config.yaml"]
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+            - containerPort: 13133
+              name: health
           env:
-            - name: NODE_NAME
+            - name: K8S_NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          securityContext:
-            runAsUser: 0
+            - name: K8S_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           volumeMounts:
             - name: config
-              mountPath: /etc/filebeat.yml
-              subPath: filebeat.yml
-              readOnly: true
-            - name: varlogcontainers
-              mountPath: /var/log/containers
+              mountPath: /etc/otel-collector-config.yaml
+              subPath: otel-collector-config.yaml
               readOnly: true
             - name: varlogpods
               mountPath: /var/log/pods
@@ -503,18 +629,27 @@ spec:
               readOnly: true
           resources:
             requests:
-              memory: "200Mi"
+              memory: "256Mi"
               cpu: "100m"
             limits:
-              memory: "200Mi"
-              cpu: "200m"
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 15
+            periodSeconds: 20
       volumes:
         - name: config
           configMap:
-            name: filebeat-config
-        - name: varlogcontainers
-          hostPath:
-            path: /var/log/containers
+            name: otel-collector-config
         - name: varlogpods
           hostPath:
             path: /var/log/pods
@@ -525,32 +660,47 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: filebeat
+  name: otel-collector
   namespace: elastic-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: filebeat
+  name: otel-collector
 rules:
   - apiGroups: [""]
     resources:
       - namespaces
       - pods
       - nodes
+      - nodes/stats
+      - services
+      - endpoints
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+      - deployments
+      - daemonsets
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: filebeat
+  name: otel-collector
 subjects:
   - kind: ServiceAccount
-    name: filebeat
+    name: otel-collector
     namespace: elastic-system
 roleRef:
   kind: ClusterRole
-  name: filebeat
+  name: otel-collector
   apiGroup: rbac.authorization.k8s.io
 ```
 
@@ -577,8 +727,8 @@ kubectl wait --for=condition=ready pod -l app=elasticsearch -n elastic-system --
 kubectl apply -f logstash-deployment.yaml
 kubectl apply -f kibana-deployment.yaml
 
-# 6. Filebeat 배포
-kubectl apply -f filebeat-daemonset.yaml
+# 6. OpenTelemetry Collector 배포
+kubectl apply -f otel-collector-daemonset.yaml
 ```
 
 ### 배포 상태 확인
@@ -762,7 +912,7 @@ kubectl exec -it elasticsearch-0 -n elastic-system -- curl -X PUT "localhost:920
 
 ```bash
 # 전체 리소스 삭제
-kubectl delete -f filebeat-daemonset.yaml
+kubectl delete -f otel-collector-daemonset.yaml
 kubectl delete -f kibana-deployment.yaml
 kubectl delete -f logstash-deployment.yaml
 kubectl delete -f elasticsearch-statefulset.yaml

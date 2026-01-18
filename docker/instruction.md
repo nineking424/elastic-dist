@@ -108,14 +108,19 @@ services:
       timeout: 10s
       retries: 5
 
-  filebeat:
-    image: docker.elastic.co/beats/filebeat:8.12.0
-    container_name: filebeat
-    user: root
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
-      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "13133:13133" # Health check
     networks:
       - elk_network
     depends_on:
@@ -143,8 +148,8 @@ docker/
 │   │   └── logstash.yml
 │   └── pipeline/
 │       └── main.conf
-└── filebeat/
-    └── filebeat.yml
+└── otel-collector/
+    └── otel-collector-config.yaml
 ```
 
 ### Logstash 설정
@@ -161,8 +166,10 @@ pipeline.batch.size: 125
 
 ```ruby
 input {
-  beats {
+  # OpenTelemetry Collector에서 데이터 수신
+  http {
     port => 5044
+    codec => json
   }
 }
 
@@ -182,27 +189,90 @@ output {
 }
 ```
 
-### Filebeat 설정
+### OpenTelemetry Collector 설정
 
-`filebeat/filebeat.yml`:
+`otel-collector/otel-collector-config.yaml`:
 
 ```yaml
-filebeat.inputs:
-  - type: container
-    paths:
-      - '/var/lib/docker/containers/*/*.log'
-    processors:
-      - add_docker_metadata:
-          host: "unix:///var/run/docker.sock"
+receivers:
+  # Docker 컨테이너 로그 수집
+  filelog:
+    include:
+      - /var/lib/docker/containers/*/*.log
+    start_at: end
+    operators:
+      - type: json_parser
+        id: docker-parser
+      - type: move
+        from: attributes.log
+        to: body
+      - type: move
+        from: attributes.stream
+        to: attributes["log.iostream"]
+      - type: move
+        from: attributes.time
+        to: attributes["log.time"]
 
-output.elasticsearch:
-  hosts: ["elasticsearch:9200"]
-  indices:
-    - index: "filebeat-%{+yyyy.MM.dd}"
+  # OTLP 프로토콜 수신 (애플리케이션에서 직접 전송)
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
 
-# Logstash로 전송하려면 아래 설정 사용
-# output.logstash:
-#   hosts: ["logstash:5044"]
+  # Docker 컨테이너 메트릭 수집
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 30s
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: docker
+        action: upsert
+
+  resourcedetection:
+    detectors: [env, system, docker]
+    timeout: 5s
+
+exporters:
+  # Elasticsearch로 직접 전송
+  elasticsearch:
+    endpoints:
+      - http://elasticsearch:9200
+    logs_index: otel-logs
+    traces_index: otel-traces
+    metrics_index: otel-metrics
+
+  # 디버깅용 콘솔 출력
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    logs:
+      receivers: [filelog, otlp]
+      processors: [batch, resource, resourcedetection]
+      exporters: [elasticsearch]
+    traces:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp, docker_stats]
+      processors: [batch, resource]
+      exporters: [elasticsearch]
 ```
 
 ## 컨테이너 실행
@@ -211,7 +281,7 @@ output.elasticsearch:
 
 ```bash
 # 디렉토리 생성
-mkdir -p logstash/config logstash/pipeline filebeat
+mkdir -p logstash/config logstash/pipeline otel-collector
 
 # 설정 파일 생성 후 컨테이너 실행
 docker compose up -d

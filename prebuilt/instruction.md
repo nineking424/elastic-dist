@@ -202,42 +202,114 @@ nohup ./bin/kibana &
 pkill -f kibana
 ```
 
-## Filebeat 설치 (선택사항)
+## OpenTelemetry Collector 설치 (선택사항)
+
+OpenTelemetry Collector는 로그, 메트릭, 트레이스를 수집하여 Elasticsearch로 전송할 수 있는 벤더 중립적인 수집기입니다.
 
 ### 1. 다운로드 및 설치
 
 ```bash
-# Filebeat 다운로드
-curl -O https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-${ELK_VERSION}-linux-x86_64.tar.gz
+# 버전 설정
+OTEL_VERSION=0.96.0
+
+# OpenTelemetry Collector Contrib 다운로드
+curl -OL https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_linux_amd64.tar.gz
 
 # 압축 해제
-tar -xzf filebeat-${ELK_VERSION}-linux-x86_64.tar.gz
-cd filebeat-${ELK_VERSION}
+mkdir otelcol-contrib
+tar -xzf otelcol-contrib_${OTEL_VERSION}_linux_amd64.tar.gz -C otelcol-contrib
+cd otelcol-contrib
 ```
 
 ### 2. 기본 설정
 
-`filebeat.yml` 파일을 편집합니다:
+`otel-config.yaml` 파일을 생성합니다:
 
 ```yaml
-filebeat.inputs:
-  - type: log
-    enabled: true
-    paths:
+receivers:
+  # 파일 로그 수집
+  filelog:
+    include:
       - /var/log/*.log
+    start_at: end
+    operators:
+      - type: regex_parser
+        regex: '^(?P<time>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z?) (?P<level>\w+) (?P<message>.*)$'
+        timestamp:
+          parse_from: attributes.time
+          layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+        severity:
+          parse_from: attributes.level
 
-output.elasticsearch:
-  hosts: ["localhost:9200"]
+  # OTLP 프로토콜로 데이터 수신
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
 
-# 또는 Logstash로 전송
-# output.logstash:
-#   hosts: ["localhost:5044"]
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+  resource:
+    attributes:
+      - key: host.name
+        from_attribute: host.name
+        action: upsert
+
+exporters:
+  # Elasticsearch로 전송
+  elasticsearch:
+    endpoints:
+      - http://localhost:9200
+    logs_index: otel-logs
+    traces_index: otel-traces
+    metrics_index: otel-metrics
+
+  # 디버깅용 콘솔 출력
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog, otlp]
+      processors: [batch, resource]
+      exporters: [elasticsearch, debug]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [elasticsearch]
 ```
 
 ### 3. 시작
 
 ```bash
-./filebeat -e
+# 설정 파일 검증
+./otelcol-contrib validate --config=otel-config.yaml
+
+# 포그라운드에서 시작
+./otelcol-contrib --config=otel-config.yaml
+
+# 백그라운드 실행
+nohup ./otelcol-contrib --config=otel-config.yaml &
+```
+
+### 4. 동작 확인
+
+```bash
+# 헬스 체크
+curl http://localhost:13133/health
+
+# zpages 확인 (디버깅)
+curl http://localhost:55679/debug/tracez
 ```
 
 ## 동작 확인
