@@ -6,12 +6,31 @@ ELK(Elasticsearch, Logstash, Kibana) 스택과 OpenTelemetry Collector를 다양
 
 ```
 elastic-dist/
-├── prebuilt/          # 바이너리 직접 설치
+├── prebuilt/                      # 바이너리 직접 설치
 │   └── instruction.md
-├── docker/            # Docker Compose 기반 설치
+├── docker/                        # Docker Compose 기반 설치
+│   ├── docker-compose.yml
+│   ├── logstash/
+│   │   ├── config/
+│   │   │   └── logstash.yml
+│   │   └── pipeline/
+│   │       └── main.conf
+│   ├── otel-collector/
+│   │   └── otel-collector-config.yaml
 │   └── instruction.md
-└── k8s/               # Kubernetes 배포
-    └── instruction.md
+├── k8s/                           # Kubernetes 배포
+│   ├── namespace.yaml
+│   ├── elasticsearch-configmap.yaml
+│   ├── elasticsearch-statefulset.yaml
+│   ├── logstash-configmap.yaml
+│   ├── logstash-deployment.yaml
+│   ├── kibana-configmap.yaml
+│   ├── kibana-deployment.yaml
+│   ├── otel-collector-daemonset.yaml
+│   ├── elk-ingress.yaml
+│   └── instruction.md
+├── REVIEW.md                      # 프로젝트 검토 보고서
+└── README.md
 ```
 
 ## 설치 방법
@@ -36,13 +55,20 @@ cd prebuilt
 
 ```bash
 cd docker
+
+# vm.max_map_count 설정 (Linux)
+sudo sysctl -w vm.max_map_count=262144
+
+# 실행
 docker compose up -d
 ```
 
-**주요 내용:**
+**주요 기능:**
 - 단일 명령어로 전체 스택 실행
 - 볼륨을 통한 데이터 영속성
 - OpenTelemetry Collector로 컨테이너 로그 수집
+- 모든 서비스에 재시작 정책 적용 (`unless-stopped`)
+- 전체 서비스 헬스체크 구성
 
 ### 3. Kubernetes 배포 (k8s)
 
@@ -50,14 +76,28 @@ docker compose up -d
 
 ```bash
 cd k8s
+
+# 전체 리소스 배포
+kubectl apply -f namespace.yaml
+kubectl apply -f elasticsearch-configmap.yaml
+kubectl apply -f logstash-configmap.yaml
+kubectl apply -f kibana-configmap.yaml
+kubectl apply -f elasticsearch-statefulset.yaml
+kubectl apply -f logstash-deployment.yaml
+kubectl apply -f kibana-deployment.yaml
+kubectl apply -f otel-collector-daemonset.yaml
+
+# 또는 한 번에 배포
 kubectl apply -f .
 ```
 
-**주요 내용:**
-- StatefulSet 기반 Elasticsearch 클러스터
+**주요 기능:**
+- StatefulSet 기반 Elasticsearch 클러스터 (3 replicas)
 - DaemonSet 기반 OpenTelemetry Collector
-- ConfigMap/Secret을 통한 설정 관리
+- ConfigMap을 통한 설정 관리
 - RBAC 설정 포함
+- Pod Anti-Affinity로 고가용성 보장
+- readinessProbe/livenessProbe 완전 구성
 
 ## 구성 요소
 
@@ -105,17 +145,25 @@ cd elastic-dist/docker
 # vm.max_map_count 설정 (Linux)
 sudo sysctl -w vm.max_map_count=262144
 
-# 디렉토리 생성
-mkdir -p logstash/config logstash/pipeline otel-collector
-
-# 설정 파일 생성 (instruction.md 참조)
-# ...
-
 # 실행
 docker compose up -d
 
 # 상태 확인
 docker compose ps
+```
+
+### Kubernetes
+
+```bash
+# 저장소 클론
+git clone https://github.com/nineking424/elastic-dist.git
+cd elastic-dist/k8s
+
+# 배포
+kubectl apply -f .
+
+# 상태 확인
+kubectl get pods -n elastic-system
 ```
 
 ### 접속 정보
@@ -137,6 +185,17 @@ docker compose ps
                                 (optional)         └───────────┘
                                 Logstash
 ```
+
+## 프로덕션 배포 시 주의사항
+
+현재 설정은 개발/테스트 환경에 최적화되어 있습니다. 프로덕션 배포 시 다음 사항을 고려하세요:
+
+- **보안**: `xpack.security.enabled=true` 설정 및 TLS 인증서 적용
+- **비밀번호**: 강력한 비밀번호 설정 및 Secret 관리
+- **네트워크**: NetworkPolicy 적용 (Kubernetes)
+- **리소스**: 적절한 CPU/메모리 제한 설정
+
+자세한 내용은 [REVIEW.md](REVIEW.md)를 참조하세요.
 
 ## 참고 문서
 
