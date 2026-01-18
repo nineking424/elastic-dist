@@ -261,6 +261,8 @@ spec:
               subPath: elasticsearch.yml
             - name: elasticsearch-data
               mountPath: /usr/share/elasticsearch/data
+            - name: elasticsearch-logs
+              mountPath: /usr/share/elasticsearch/logs
           resources:
             requests:
               memory: "2Gi"
@@ -284,6 +286,8 @@ spec:
         - name: elasticsearch-config
           configMap:
             name: elasticsearch-config
+        - name: elasticsearch-logs
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: elasticsearch-data
@@ -346,6 +350,8 @@ spec:
             - name: logstash-pipeline
               mountPath: /usr/share/logstash/pipeline/logstash.conf
               subPath: logstash.conf
+            - name: logstash-logs
+              mountPath: /usr/share/logstash/logs
           resources:
             requests:
               memory: "1Gi"
@@ -372,6 +378,8 @@ spec:
             items:
               - key: logstash.conf
                 path: logstash.conf
+        - name: logstash-logs
+          emptyDir: {}
 ```
 
 ## Kibana Deployment 배포
@@ -416,6 +424,8 @@ spec:
             - name: kibana-config
               mountPath: /usr/share/kibana/config/kibana.yml
               subPath: kibana.yml
+            - name: kibana-logs
+              mountPath: /usr/share/kibana/logs
           resources:
             requests:
               memory: "1Gi"
@@ -433,6 +443,8 @@ spec:
         - name: kibana-config
           configMap:
             name: kibana-config
+        - name: kibana-logs
+          emptyDir: {}
 ```
 
 ## OpenTelemetry Collector DaemonSet 배포
@@ -452,6 +464,7 @@ data:
       filelog:
         include:
           - /var/log/pods/*/*/*.log
+          - /var/log/app/*.log
         start_at: end
         include_file_path: true
         include_file_name: false
@@ -627,6 +640,9 @@ spec:
             - name: varlibdockercontainers
               mountPath: /var/lib/docker/containers
               readOnly: true
+            - name: varlogapp
+              mountPath: /var/log/app
+              readOnly: true
           resources:
             requests:
               memory: "256Mi"
@@ -656,6 +672,10 @@ spec:
         - name: varlibdockercontainers
           hostPath:
             path: /var/lib/docker/containers
+        - name: varlogapp
+          hostPath:
+            path: /var/log/app
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: ServiceAccount

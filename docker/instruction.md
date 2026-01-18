@@ -58,6 +58,7 @@ services:
         hard: 65536
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
+      - elasticsearch_logs:/usr/share/elasticsearch/logs
     ports:
       - "9200:9200"
       - "9300:9300"
@@ -79,6 +80,7 @@ services:
     volumes:
       - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
       - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - logstash_logs:/usr/share/logstash/logs
     ports:
       - "5044:5044"
       - "9600:9600"
@@ -95,6 +97,8 @@ services:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - SERVER_NAME=kibana
       - I18N_LOCALE=ko-KR
+    volumes:
+      - kibana_logs:/usr/share/kibana/logs
     ports:
       - "5601:5601"
     networks:
@@ -117,6 +121,7 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/log:/var/log:ro
+      - ./app-logs:/var/log/app:ro
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
@@ -129,6 +134,12 @@ services:
 
 volumes:
   elasticsearch_data:
+    driver: local
+  elasticsearch_logs:
+    driver: local
+  logstash_logs:
+    driver: local
+  kibana_logs:
     driver: local
 
 networks:
@@ -199,6 +210,7 @@ receivers:
   filelog:
     include:
       - /var/lib/docker/containers/*/*.log
+      - /var/log/app/*.log
     start_at: end
     operators:
       - type: json_parser

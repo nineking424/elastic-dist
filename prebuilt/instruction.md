@@ -402,6 +402,51 @@ sudo systemctl status elasticsearch
    - root 사용자로 Elasticsearch를 실행하지 마세요
    - 전용 사용자 계정을 생성하여 실행하세요
 
+### 로그 디렉토리 설정
+
+각 서비스의 로그는 기본적으로 설치 디렉토리 내 `logs` 폴더에 저장됩니다:
+
+| 서비스 | 로그 디렉토리 |
+|--------|--------------|
+| Elasticsearch | `elasticsearch-${ELK_VERSION}/logs/` |
+| Logstash | `logstash-${ELK_VERSION}/logs/` |
+| Kibana | `kibana-${ELK_VERSION}/logs/` |
+
+#### 로그 디렉토리 권한 설정
+
+```bash
+# 로그 디렉토리 생성 및 권한 설정
+mkdir -p elasticsearch-${ELK_VERSION}/logs
+mkdir -p logstash-${ELK_VERSION}/logs
+mkdir -p kibana-${ELK_VERSION}/logs
+
+# 적절한 권한 부여 (전용 사용자 사용 시)
+chown -R elasticsearch:elasticsearch elasticsearch-${ELK_VERSION}/logs
+chown -R logstash:logstash logstash-${ELK_VERSION}/logs
+chown -R kibana:kibana kibana-${ELK_VERSION}/logs
+```
+
+#### 애플리케이션 로그 수집 경로 설정
+
+OpenTelemetry Collector로 추가 애플리케이션 로그를 수집하려면, `otel-config.yaml`의 filelog receiver에 경로를 추가합니다:
+
+```yaml
+receivers:
+  filelog:
+    include:
+      - /var/log/*.log
+      - /var/log/app/*.log  # 애플리케이션 로그 경로 추가
+    start_at: end
+```
+
+수집할 로그 디렉토리가 존재하는지 확인하고 필요시 생성합니다:
+
+```bash
+# 애플리케이션 로그 디렉토리 생성
+sudo mkdir -p /var/log/app
+sudo chmod 755 /var/log/app
+```
+
 ### 로그 확인
 
 ```bash
