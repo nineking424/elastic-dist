@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: elastic-system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5601
+      targetPort: 5601
+  selector:
+    app: kibana
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: elastic-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      containers:
+        - name: kibana
+          image: docker.elastic.co/kibana/kibana:8.12.0
+          ports:
+            - containerPort: 5601
+          volumeMounts:
+            - name: kibana-config
+              mountPath: /usr/share/kibana/config/kibana.yml
+              subPath: kibana.yml
+            - name: kibana-logs
+              mountPath: /usr/share/kibana/logs
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: kibana-config
+          configMap:
+            name: kibana-config
+        - name: kibana-logs
+          emptyDir: {}

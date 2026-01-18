@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-config
+  namespace: elastic-system
+data:
+  elasticsearch.yml: |
+    cluster.name: k8s-elk-cluster
+    network.host: 0.0.0.0
+    discovery.seed_hosts:
+      - elasticsearch-0.elasticsearch-headless
+      - elasticsearch-1.elasticsearch-headless
+      - elasticsearch-2.elasticsearch-headless
+    cluster.initial_master_nodes:
+      - elasticsearch-0
+      - elasticsearch-1
+      - elasticsearch-2
+    xpack.security.enabled: false
+    xpack.monitoring.collection.enabled: true
